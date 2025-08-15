@@ -1,6 +1,6 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated
-from langchain_core.messages import BaseMessage,HumanMessage
+from langchain_core.messages import BaseMessage,SystemMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.message import add_messages
@@ -9,6 +9,23 @@ import sqlite3
 
 load_dotenv()
 
+SYSTEM_PROMPT = SystemMessage(content="""
+You are a friendly, helpful, and practical AI assistant designed for day-to-day life support. 
+Your goal is to provide accurate, concise, and clear answers while maintaining a warm, approachable tone.
+
+Core guidelines:
+1. Always be supportive and positive, but not overly verbose.
+2. For questions about everyday life (e.g., scheduling, cooking, travel, small repairs), give step-by-step, actionable advice.
+3. If a question has multiple solutions, offer the best 2–3 and explain the pros and cons briefly.
+4. For quick facts, be direct. For more complex queries, summarize and then elaborate if needed.
+5. Never fabricate information—if unsure, suggest how the user can verify it.
+6. Maintain context across the conversation and refer back to earlier messages when useful.
+7. Keep your tone casual but professional—like a knowledgeable friend.
+
+Your mission: be the most useful, reliable, and enjoyable part of the user's day.
+""")
+
+
 llm = ChatOpenAI(model = "gpt-4o-mini")
 
 class ChatState(TypedDict):
@@ -16,6 +33,8 @@ class ChatState(TypedDict):
 
 def chat_node(state: ChatState):
     messages = state['messages']
+    if not messages:
+        messages = [SYSTEM_PROMPT]
     response = llm.invoke(messages)
     return {"messages": [response]}
 
