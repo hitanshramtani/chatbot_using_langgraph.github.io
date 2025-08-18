@@ -1,11 +1,16 @@
 from langgraph.graph import StateGraph, START, END
 from typing import TypedDict, Annotated
-from langchain_core.messages import BaseMessage,SystemMessage
+from langchain_core.messages import BaseMessage,SystemMessage,HumanMessage
 from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.sqlite import SqliteSaver
 from langgraph.graph.message import add_messages
 from dotenv import load_dotenv
 import sqlite3
+from langchain_community.utilities import WikipediaAPIWrapper, ArxivAPIWrapper, SerpAPIWrapper
+from langchain_community.tools import WikipediaQueryRun, ArxivQueryRun
+from langchain.tools import Tool
+from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import tools_condition
 
 load_dotenv()
 
@@ -26,8 +31,24 @@ Core guidelines:
 Your mission: be the most useful, reliable, and enjoyable part of the user's day.
 """)
 
+search = SerpAPIWrapper()
 
+search_tool = Tool(
+    name="search",
+    func=search.run,
+    description="Search the web using SerpAPI"
+)
+arxiv_wrapper = ArxivAPIWrapper()
+wiki_wrapper = WikipediaAPIWrapper()
+
+arxiv = ArxivQueryRun(api_wrapper=arxiv_wrapper,description="Search for academic papers on arxiv.org")
+wiki = WikipediaQueryRun(api_wrapper=wiki_wrapper, description="Search for information on Wikipedia") 
+
+
+tools = [search_tool,arxiv,wiki]
 llm = ChatOpenAI(model = "gpt-4o-mini")
+llm_with_tool = llm.bind_tools(tools=tools)
+
 
 class ChatState(TypedDict):
     messages: Annotated[list[BaseMessage], add_messages]
@@ -36,7 +57,7 @@ def chat_node(state: ChatState):
     messages = state['messages']
     if not messages:
         messages = [SYSTEM_PROMPT]
-    response = llm.invoke(messages)
+    response = llm_with_tool.invoke(messages)
     return {"messages": [response]}
 
 
@@ -59,8 +80,11 @@ checkpointer = SqliteSaver(conn = conn)
 
 graph = StateGraph(ChatState)
 graph.add_node("chat_node", chat_node)
+graph.add_node("tools",ToolNode(tools))
+
 graph.add_edge(START, "chat_node")
-graph.add_edge("chat_node", END)
+graph.add_conditional_edges("chat_node", tools_condition)
+graph.add_edge("tools", "chat_node")
 
 chatbot = graph.compile(checkpointer=checkpointer)
 
@@ -83,3 +107,20 @@ def retrieve_all_threads():
         all_threads.add(checkpoint.config['configurable']['thread_id'])
 
     return list(all_threads)
+
+CONFIG = {'configurable': {'thread_id': "threadid-2"}}
+results = chatbot.invoke(
+                {'messages': [HumanMessage(content="what is the 76*68 and also tell who won the ipl 2025")]},
+                config=CONFIG
+            )
+# print(results)
+# Extract just the clean conversation
+# clean_convo = []
+# for msg in results["messages"]:
+#     role = msg.__class__.__name__  # HumanMessage / AIMessage / ToolMessage
+#     content = msg.content
+#     clean_convo.append({"role": role, "content": content})
+
+# # Print simplified conversation
+# for entry in clean_convo:
+#     print(f"{entry['role']}: {entry['content']}\n")

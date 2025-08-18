@@ -2,6 +2,7 @@ import streamlit as st
 from backend_db import chatbot, retrieve_all_threads,save_thread_name, load_thread_names
 from langchain_core.messages import HumanMessage
 import uuid
+import json
 
 def generate_thread_id():
     thread_id = uuid.uuid4()
@@ -67,8 +68,38 @@ for thread_id in st.session_state['chat_threads'][::-1]:
 
 # loading the conversation history
 for message in st.session_state['message_history']:
-    with st.chat_message(message['role']):
-        st.markdown(message['content'])
+    if message['role'] in ['user', 'assistant'] and message['content'].strip():
+        if message['content'].startswith(("Page:", "Published","title", "[{","['","{")):
+            continue
+        with st.chat_message(message['role']):
+            st.markdown(message['content'])
+        #     try:
+        #         parsed = json.loads(content)
+
+        #         if isinstance(parsed, list):
+        #             for item in parsed:
+        #                 title = item.get("title", "")
+        #                 link = item.get("link", "")
+        #                 source = item.get("source", "")
+        #                 date = item.get("date", "")
+        #                 thumb = item.get("thumbnail", "")
+
+        #                 # Render as a news card
+        #                 st.markdown(f"**{title}**  \n"
+        #                             f"[🔗 Read more]({link})  \n"
+        #                             f"*Source:* {source} | *Date:* {date}")
+        #                 if thumb:
+        #                     st.image(thumb, width=300)
+        #                 st.markdown("---")
+
+        #         elif isinstance(parsed, dict):
+        #             st.json(parsed)  # fallback for single dict
+
+        #     except Exception:
+        #         # If not JSON AND not a JSON-looking string, just print normally
+        #         if not (content.startswith("[{") or content.startswith("{")):
+        #             st.markdown(content)
+
 
 user_input = st.chat_input("Type your message here...")
 
@@ -83,11 +114,46 @@ if user_input:
     # first add the message to message_history
     
     with st.chat_message('assistant'):
-        ai_message = st.write_stream(
-            message_chunk.content for message_chunk, metadeta in chatbot.stream(
-                {'messages': [HumanMessage(content=user_input)]},
-                config=CONFIG,
-                stream_mode="messages"
-            )
-        )
-    st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
+        placeholder = st.empty()   # create placeholder for streaming
+        ai_message = ""
+        for message_chunk, metadata in chatbot.stream(
+            {'messages': [HumanMessage(content=user_input)]},
+            config=CONFIG,
+            stream_mode="messages"
+        ):
+            # skip tool messages
+            print(2)
+            if message_chunk.__class__.__name__ in ["ToolMessage", "Page"]:
+                continue
+            print(message_chunk.content)
+            if message_chunk.content and message_chunk.content.strip():
+                ai_message += message_chunk.content
+                placeholder.markdown(ai_message + "▌")
+            print(3)
+            print(ai_message)
+        placeholder.markdown(ai_message)
+    if ai_message.strip():
+        st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
+
+#orignal
+# for message in st.session_state['message_history']:
+#     with st.chat_message(message['role']): 
+#         st.markdown(message['content'])
+# user_input = st.chat_input("Type your message here...") 
+# if user_input: 
+#     if len(st.session_state['message_history']) == 0: 
+#         update_thread_name(st.session_state['thread_id'], user_input[:20]) 
+#     st.session_state['message_history'].append({'role': 'user', 'content': user_input}) 
+#     with st.chat_message("user"): 
+#         st.text(user_input) 
+#     # first add the message to message_history 
+#     with st.chat_message('assistant'): 
+#         ai_message = st.write_stream(
+#             message_chunk.content for message_chunk, metadeta in chatbot.stream(
+#                 {'messages': [HumanMessage(content=user_input)]},
+#                 config=CONFIG, stream_mode="messages"
+#                 )
+#             )
+#     st.session_state['message_history'].append({'role': 'assistant', 'content': ai_message})
+
+
